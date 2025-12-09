@@ -9,9 +9,9 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // ⚠️ REPLACE THESE WITH YOUR REAL VALUES
-const API_KEY = "bg_614d0aff7aed6eb327bd7256d34ba676";
+const API_KEY = "bg_b0956cf8fe05e8a65b288e9ad7d03d27";
 const API_SECRET = "14040178";
-const PASSPHRASE = "973114d0727fe00f0df88baae06c6a36d43cb3150d989114bc03782a840627fa";
+const PASSPHRASE = "0dbe3de2f2149e728a27ab6514d8e4cbed3c86a1284f2e6b03ae25b0a233c96e";
 const BRIDGE_SECRET = "eyJhbGciOiJIUzI1NiJ9.eyJzaWduYWxzX3NvdXJjZV9pZCI6MTU1Mjc1fQ.9Tph5w-fPgUVMS7hCPkqe5RBMsmBAUsTxC8BWTuTL9E";
 
 // =====================================
