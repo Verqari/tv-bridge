@@ -12,7 +12,8 @@ const PORT = process.env.PORT || 3000;
 const BITGET_API_KEY = process.env.BITGET_API_KEY || "bg_614d0aff7aed6eb327bd7256d34ba676";
 const BITGET_API_SECRET = process.env.BITGET_API_SECRET || "14040178";
 const BITGET_API_PASS = process.env.BITGET_API_PASS || "973114d0727fe00f0df88baae06c6a36d43cb3150d989114bc03782a840627fa";
-const BRIDGE_SECRET = "14040178"; // same as in your TradingView webhook URL
+const BRIDGE_SECRET = "eyJhbGciOiJIUzI1NiJ9.eyJzaWduYWxzX3NvdXJjZV9pZCI6MTU1Mjc1fQ.9Tph5w-fPgUVMS7hCPkqe5RBMsmBAUsTxC8BWTuTL9E";
+
 // =====================================
 
 // Bitget v2 signer: HMAC-SHA256, base64
