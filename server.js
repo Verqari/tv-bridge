@@ -10,8 +10,8 @@ const PORT = process.env.PORT || 3000;
 
 // ⚠️ REPLACE THESE WITH YOUR REAL VALUES
 const API_KEY = "bg_2ca546e13eee6a96dba5db7df5329cc1";
-const API_SECRET = "14040178Zimny";
-const PASSPHRASE = "72926aa86e184b0a87466fff8bad0985aecb66d091b6d0b7e025875531934fcd";
+const API_SECRET = "72926aa86e184b0a87466fff8bad0985aecb66d091b6d0b7e025875531934fcd";
+const PASSPHRASE = "140401Zimny";
 const BRIDGE_SECRET = "eyJhbGciOiJIUzI1NiJ9.eyJzaWduYWxzX3NvdXJjZV9pZCI6MTU1Mjc1fQ.9Tph5w-fPgUVMS7hCPkqe5RBMsmBAUsTxC8BWTuTL9E";
 
 // =====================================
