@@ -84,6 +84,7 @@ app.post("/hook", async (req, res) => {
     const order = {
       symbol,               // BTCUSDT
       productType: "umcbl", // USDT-M futures (unified)
+      marginMode: "cross",
       marginCoin: "USDT",
       size: String(qty),
       side: tradeSide,      // open_long or open_short
