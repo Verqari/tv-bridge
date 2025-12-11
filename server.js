@@ -66,10 +66,11 @@ app.post("/hook", async (req, res) => {
     const symbol = mapSymbol(tvInstr);
 
     const action = String(p.action || p.side || "").toLowerCase();
+
+    // For v2 we use plain 'buy' / 'sell'
     let side;
-    if (action === "buy" || action === "long") side = "open_long";
-    else if (action === "sell" || action === "short") side = "open_short";
-    else if (action === "close_long" || action === "close_short") side = action;
+    if (action === "buy" || action === "long" || action === "open_long") side = "buy";
+    else if (action === "sell" || action === "short" || action === "open_short") side = "sell";
     else {
       return res.status(400).json({ ok: false, error: `invalid action '${action}'` });
     }
@@ -80,17 +81,21 @@ app.post("/hook", async (req, res) => {
       return res.status(400).json({ ok: false, error: "qty invalid" });
     }
 
+    // === Bitget v2 /api/v2/mix/order/place-order body ===
+    // From docs: symbol, productType, marginMode, marginCoin, size, side, orderType, force, tradeSide (optional)
     const order = {
-      symbol,
+      symbol,                     // e.g. BTCUSDT
+      productType: "USDT-FUTURES",// USDT-M futures
+      marginMode: "crossed",      // or "isolated" if you prefer
       marginCoin: "USDT",
-      side,
+      size: String(qtyRaw),       // amount in base coin
+      side,                       // 'buy' or 'sell'
       orderType: "market",
-      size: String(qtyRaw),
-      reduceOnly: side.startsWith("close"),
+      force: "gtc",               // good-till-cancelled
+      // tradeSide is optional in one-way mode; omit for now
       clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     };
 
-    // 5) Bitget v2 place-order
     const pathV2 = "/api/v2/mix/order/place-order";
     const bodyStr = JSON.stringify(order);
     const tsMs = Date.now().toString();
