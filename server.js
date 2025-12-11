@@ -93,9 +93,9 @@ app.post("/hook", async (req, res) => {
       "Content-Type": "application/json"
     };
 
-    const resp = await axios.post("https://api.bitget.com" + pathV2, bodyStr, {
-      headers
-    });
+   const resp = await axios.post("https://api.bitget.com" + pathV1, bodyStr, {
+  headers
+});
 
     return res.json({ ok: true, sent: true, bitget: resp.data, order });
   } catch (err) {
