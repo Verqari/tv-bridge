@@ -1,4 +1,4 @@
-// server.js
+
 const express = require("express");
 const crypto = require("crypto");
 const axios = require("axios");
@@ -8,18 +8,19 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// ==== Bitget + TV secrets (EDIT THESE 4 ONLY) ====
+// ==== EDIT THESE 4 ONLY ====================================
 const API_KEY = "bg_6e19b0664e47d62f71d63fdb138a956f";
 const API_SECRET = "83047d6f01051a2bed008765f0d8b682afd41e35abc3cfe67053de0c41e7a462";
 const PASSPHRASE = "FredaTV123"; // the API passphrase from Bitget
 const BRIDGE_SECRET = "eyJhbGciOiJIUzI1NiJ9.eyJzaWduYWxzX3NvdXJjZV9pZCI6MTU1Mjc1fQ.9Tph5w-fPgUVMS7hCPkqe5RBMsmBAUsTxC8BWTuTL9E"; // the 'secret' field from your TV JSON
+// ===========================================================
 
-// =====================================
-
-// Bitget v2 signer: HMAC-SHA256, base64
-function signRequest(method, path, timestamp, body = "") {
-  const prehash = timestamp + method + path + "" + body;
-  return crypto.createHmac("sha256", API_SECRET).update(prehash).digest("base64");
+// Bitget v2 signer: HMAC-SHA256 -> base64
+function signRequest(method, path, timestamp, bodyStr = "") {
+  const prehash = timestamp + method + path + bodyStr;
+  return crypto.createHmac("sha256", API_SECRET)
+    .update(prehash)
+    .digest("base64");
 }
 
 // Map TradingView instrument to Bitget symbol
@@ -42,7 +43,7 @@ app.post("/hook", async (req, res) => {
   try {
     const p = req.body || {};
 
-    // 1) Simple secret check from JSON body
+    // 1) Secret check from JSON body
     if (!p.secret || p.secret !== BRIDGE_SECRET) {
       return res.status(403).json({ ok: false, error: "Unauthorized (secret)" });
     }
@@ -89,10 +90,11 @@ app.post("/hook", async (req, res) => {
       clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     };
 
-    // 5) Bitget v2 endpoint
+    // 5) Bitget v2 place-order
     const pathV2 = "/api/v2/mix/order/place-order";
     const bodyStr = JSON.stringify(order);
     const tsMs = Date.now().toString();
+
     const sig = signRequest("POST", pathV2, tsMs, bodyStr);
 
     const headers = {
@@ -103,7 +105,6 @@ app.post("/hook", async (req, res) => {
       "Content-Type": "application/json"
     };
 
-    // 6) Send to Bitget
     const resp = await axios.post("https://api.bitget.com" + pathV2, bodyStr, {
       headers
     });
