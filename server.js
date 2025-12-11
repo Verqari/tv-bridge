@@ -63,14 +63,17 @@ app.post("/hook", async (req, res) => {
     const symbol = mapSymbol(p.tv_instrument || p.symbol);
 
     // --- Side mapping ---
-    const action = String(p.action || "").toLowerCase();
-    let tradeSide = null;
+   const action = String(p.action || "").toLowerCase();
+    let side = null;
 
-    if (action === "buy") tradeSide = "open_long";
-    else if (action === "sell") tradeSide = "open_short";
-    else {
-      return res.status(400).json({ ok: false, error: "invalid action" });
+    if (action === "buy" || action === "long" || action === "open_long") {
+      side = "buy";
+    } else if (action === "sell" || action === "short" || action === "open_short") {
+      side = "sell";
+    } else {
+      return res.status(400).json({ ok: false, error: `invalid action '${action}'` });
     }
+
 
     // --- Qty ---
     const qty = Number((p.order && p.order.amount) || p.qty || 0);
@@ -87,7 +90,7 @@ app.post("/hook", async (req, res) => {
       marginMode: "cross",
       marginCoin: "USDT",
       size: String(qty),
-      side: tradeSide,      // open_long or open_short
+      side,     // open_long or open_short
       orderType: "market",
       clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     };
