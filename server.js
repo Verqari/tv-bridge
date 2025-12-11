@@ -83,24 +83,7 @@ app.post("/hook", async (req, res) => {
 
     // === Bitget v2 /api/v2/mix/order/place-order body ===
     // From docs: symbol, productType, marginMode, marginCoin, size, side, orderType, force, tradeSide (optional)
-    const order = {
-      symbol,                     // e.g. BTCUSDT
-      productType: "USDT-FUTURES",// USDT-M futures
-      marginMode: "crossed",      // or "isolated" if you prefer
-      marginCoin: "USDT",
-      size: String(qtyRaw),       // amount in base coin
-      side,                       // 'buy' or 'sell'
-      orderType: "market",
-      force: "gtc",               // good-till-cancelled
-      // tradeSide is optional in one-way mode; omit for now
-      clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-    };
-
-    const pathV2 = "/api/v2/mix/order/place-order";
-    const bodyStr = JSON.stringify(order);
-    const tsMs = Date.now().toString();
-
-    const sig = signRequest("POST", pathV2, tsMs, bodyStr);
+    
 
     const headers = {
       "ACCESS-KEY": API_KEY,
