@@ -1,4 +1,5 @@
 
+// server.js
 const express = require("express");
 const crypto = require("crypto");
 const axios = require("axios");
@@ -15,15 +16,17 @@ const PASSPHRASE = "FredaTV123"; // the API passphrase from Bitget
 const BRIDGE_SECRET = "eyJhbGciOiJIUzI1NiJ9.eyJzaWduYWxzX3NvdXJjZV9pZCI6MTU1Mjc1fQ.9Tph5w-fPgUVMS7hCPkqe5RBMsmBAUsTxC8BWTuTL9E"; // the 'secret' field from your TV JSON
 // ===========================================================
 
-// Bitget v2 signer: HMAC-SHA256 -> base64
+// Bitget signer (v1 + v2 compatible):
+// prehash = timestamp + method + path + body
 function signRequest(method, path, timestamp, bodyStr = "") {
   const prehash = timestamp + method + path + bodyStr;
-  return crypto.createHmac("sha256", API_SECRET)
+  return crypto
+    .createHmac("sha256", API_SECRET)
     .update(prehash)
     .digest("base64");
 }
 
-// Map TradingView instrument to Bitget symbol
+// Map TradingView instrument (e.g. BITGET:BTCUSDTPERP) to Bitget symbol
 function mapSymbol(tvInstr) {
   const s = String(tvInstr || "").toUpperCase();
   const base = s.includes(":") ? s.split(":").pop() : s;
@@ -38,14 +41,14 @@ app.get("/health", (req, res) => {
   res.send("OK (render bridge up)");
 });
 
-// Webhook endpoint
+// Main webhook endpoint
 app.post("/hook", async (req, res) => {
   try {
     const p = req.body || {};
 
-    // 1) Secret check from JSON body
+    // 1) Secret check – must match TradingView JSON "secret"
     if (!p.secret || p.secret !== BRIDGE_SECRET) {
-      return res.status(403).json({ ok: false, error: "Unauthorized (secret)" });
+      return res.status(403).json({ ok: false, error: "Unauthorized (secret mismatch)" });
     }
 
     // 2) Freshness check
@@ -61,18 +64,23 @@ app.post("/hook", async (req, res) => {
       });
     }
 
-    // 3) Symbol and side
+    // 3) Symbol & side
     const tvInstr = p.tv_instrument || p.symbol;
     const symbol = mapSymbol(tvInstr);
 
     const action = String(p.action || p.side || "").toLowerCase();
 
-    // For v2 we use plain 'buy' / 'sell'
-    let side;
-    if (action === "buy" || action === "long" || action === "open_long") side = "buy";
-    else if (action === "sell" || action === "short" || action === "open_short") side = "sell";
-    else {
-      return res.status(400).json({ ok: false, error: `invalid action '${action}'` });
+    // We'll support only entry actions here
+    // TV: "buy"/"sell" from {{strategy.order.action}}
+    let sideV1;
+    if (action === "buy" || action === "long" || action === "open_long") {
+      sideV1 = "open_long";
+    } else if (action === "sell" || action === "short" || action === "open_short") {
+      sideV1 = "open_short";
+    } else {
+      return res
+        .status(400)
+        .json({ ok: false, error: `invalid or unsupported action '${action}'` });
     }
 
     // 4) Quantity
@@ -81,37 +89,45 @@ app.post("/hook", async (req, res) => {
       return res.status(400).json({ ok: false, error: "qty invalid" });
     }
 
-    // === Bitget v1 /api/mix/v1/order/placeOrder (simple & works in one-way mode) ===
-let sideV1;
-if (side === "buy")  sideV1 = "open_long";
-if (side === "sell") sideV1 = "open_short";
+    // === Bitget v1 /api/mix/v1/order/placeOrder body ===
+    const order = {
+      symbol,                // e.g. BTCUSDT
+      marginCoin: "USDT",
+      size: String(qtyRaw),  // contracts / base amount
+      side: sideV1,          // open_long / open_short
+      orderType: "market",
+      clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    };
 
-const order = {
-  symbol,                // e.g. BTCUSDT
-  marginCoin: "USDT",
-  size: String(qtyRaw),  // size in contracts (base coin)
-  side: sideV1,          // open_long / open_short
-  orderType: "market",
-  clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-};
+    const pathV1 = "/api/mix/v1/order/placeOrder";
+    const bodyStr = JSON.stringify(order);
+    const tsMs = Date.now().toString();
 
-const pathV1 = "/api/mix/v1/order/placeOrder";
-const bodyStr = JSON.stringify(order);
-const tsMs = Date.now().toString();
+    const sig = signRequest("POST", pathV1, tsMs, bodyStr);
 
-// !!! SIGNATURE MUST USE pathV1 !!!
-const sig = signRequest("POST", pathV1, tsMs, bodyStr);
+    const headers = {
+      "ACCESS-KEY": API_KEY,
+      "ACCESS-SIGN": sig,
+      "ACCESS-PASSPHRASE": PASSPHRASE,
+      "ACCESS-TIMESTAMP": tsMs,
+      "Content-Type": "application/json"
+    };
 
-const headers = {
-  "ACCESS-KEY": API_KEY,
-  "ACCESS-SIGN": sig,
-  "ACCESS-PASSPHRASE": PASSPHRASE,
-  "ACCESS-TIMESTAMP": tsMs,
-  "Content-Type": "application/json"
-};
+    const resp = await axios.post("https://api.bitget.com" + pathV1, bodyStr, {
+      headers
+    });
 
-const resp = await axios.post("https://api.bitget.com" + pathV1, bodyStr, {
-  headers
+    return res.json({ ok: true, sent: true, bitget: resp.data, order });
+  } catch (err) {
+    console.error("ERROR /hook:", err.response?.data || err.message);
+    return res.status(500).json({
+      ok: false,
+      error: err.message,
+      bitget: err.response?.data || null
+    });
+  }
 });
 
-return res.json({ ok: true, sent: true, bitget: resp.data, order });
+app.listen(PORT, () => {
+  console.log(`tv-bitget bridge listening on port ${PORT}`);
+});
