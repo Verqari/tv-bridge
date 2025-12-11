@@ -81,31 +81,37 @@ app.post("/hook", async (req, res) => {
       return res.status(400).json({ ok: false, error: "qty invalid" });
     }
 
-    // === Bitget v2 /api/v2/mix/order/place-order body ===
-    // From docs: symbol, productType, marginMode, marginCoin, size, side, orderType, force, tradeSide (optional)
-    
+    // === Bitget v1 /api/mix/v1/order/placeOrder (simple & works in one-way mode) ===
+let sideV1;
+if (side === "buy")  sideV1 = "open_long";
+if (side === "sell") sideV1 = "open_short";
 
-    const headers = {
-      "ACCESS-KEY": API_KEY,
-      "ACCESS-SIGN": sig,
-      "ACCESS-PASSPHRASE": PASSPHRASE,
-      "ACCESS-TIMESTAMP": tsMs,
-      "Content-Type": "application/json"
-    };
+const order = {
+  symbol,                // e.g. BTCUSDT
+  marginCoin: "USDT",
+  size: String(qtyRaw),  // size in contracts (base coin)
+  side: sideV1,          // open_long / open_short
+  orderType: "market",
+  clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+};
 
-   const resp = await axios.post("https://api.bitget.com" + pathV1, bodyStr, {
+const pathV1 = "/api/mix/v1/order/placeOrder";
+const bodyStr = JSON.stringify(order);
+const tsMs = Date.now().toString();
+
+// !!! SIGNATURE MUST USE pathV1 !!!
+const sig = signRequest("POST", pathV1, tsMs, bodyStr);
+
+const headers = {
+  "ACCESS-KEY": API_KEY,
+  "ACCESS-SIGN": sig,
+  "ACCESS-PASSPHRASE": PASSPHRASE,
+  "ACCESS-TIMESTAMP": tsMs,
+  "Content-Type": "application/json"
+};
+
+const resp = await axios.post("https://api.bitget.com" + pathV1, bodyStr, {
   headers
 });
 
-    return res.json({ ok: true, sent: true, bitget: resp.data, order });
-  } catch (err) {
-    console.error("ERROR /hook:", err.response?.data || err.message);
-    return res
-      .status(500)
-      .json({ ok: false, error: err.message, bitget: err.response?.data || null });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`tv-bitget bridge listening on port ${PORT}`);
-});
+return res.json({ ok: true, sent: true, bitget: resp.data, order });
