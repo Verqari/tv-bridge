@@ -84,16 +84,17 @@ app.post("/hook", async (req, res) => {
     // --- v2 Bitget Order ---
     const path = "/api/v2/mix/order/place-order";
 
-    const order = {
-      symbol,               // BTCUSDT
-      productType: "umcbl", // USDT-M futures (unified)
-      marginMode: "cross",
-      marginCoin: "USDT",
-      size: String(qty),
-      side,     // open_long or open_short
-      orderType: "market",
-      clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-    };
+const order = {
+  symbol,                     // BTCUSDT
+  productType: "USDT-FUTURES",// USDT-M futures (per docs)
+  marginMode: "crossed",      // cross margin (exact spelling)
+  marginCoin: "USDT",
+  size: String(qty),
+  side,                       // 'buy' or 'sell'
+  orderType: "market",
+  clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+};
+
 
     const body = JSON.stringify(order);
     const tsMs = Date.now().toString();
