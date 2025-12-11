@@ -1,8 +1,7 @@
 
 // server.js
 const express = require("express");
-const crypto = require("crypto");
-const axios = require("axios");
+const { BitgetApiClient } = require("bitget-api"); // official SDK
 
 const app = express();
 app.use(express.json());
@@ -16,15 +15,12 @@ const PASSPHRASE = "FredaTV123"; // the API passphrase from Bitget
 const BRIDGE_SECRET = "eyJhbGciOiJIUzI1NiJ9.eyJzaWduYWxzX3NvdXJjZV9pZCI6MTU1Mjc1fQ.9Tph5w-fPgUVMS7hCPkqe5RBMsmBAUsTxC8BWTuTL9E"; // the 'secret' field from your TV JSON
 // ===========================================================
 
-// Bitget signer (v1 + v2 compatible):
-// prehash = timestamp + method + path + body
-function signRequest(method, path, timestamp, bodyStr = "") {
-  const prehash = timestamp + method + path + bodyStr;
-  return crypto
-    .createHmac("sha256", API_SECRET)
-    .update(prehash)
-    .digest("base64");
-}
+// Init Bitget SDK client (Mix/Futures)
+const client = new BitgetApiClient({
+  apiKey: API_KEY,
+  apiSecret: API_SECRET,
+  passphrase: PASSPHRASE
+});
 
 // Map TradingView instrument (e.g. BITGET:BTCUSDTPERP) to Bitget symbol
 function mapSymbol(tvInstr) {
@@ -38,7 +34,7 @@ function mapSymbol(tvInstr) {
 
 // Health check
 app.get("/health", (req, res) => {
-  res.send("OK (render bridge up)");
+  res.send("OK (render + Bitget SDK up)");
 });
 
 // Main webhook endpoint
@@ -72,11 +68,11 @@ app.post("/hook", async (req, res) => {
 
     // We'll support only entry actions here
     // TV: "buy"/"sell" from {{strategy.order.action}}
-    let sideV1;
+    let tradeSide;
     if (action === "buy" || action === "long" || action === "open_long") {
-      sideV1 = "open_long";
+      tradeSide = "buy";
     } else if (action === "sell" || action === "short" || action === "open_short") {
-      sideV1 = "open_short";
+      tradeSide = "sell";
     } else {
       return res
         .status(400)
@@ -89,45 +85,32 @@ app.post("/hook", async (req, res) => {
       return res.status(400).json({ ok: false, error: "qty invalid" });
     }
 
-    // === Bitget v1 /api/mix/v1/order/placeOrder body ===
-    const order = {
-      symbol,                // e.g. BTCUSDT
+    // === Use Bitget SDK to place USDT-M Perp Market Order ===
+    // productType: "USDT-FUTURES" = USDT-M perpetual futures
+    const orderReq = {
+      symbol,                  // BTCUSDT / ETHUSDT
+      productType: "USDT-FUTURES",
       marginCoin: "USDT",
-      size: String(qtyRaw),  // contracts / base amount
-      side: sideV1,          // open_long / open_short
+      size: String(qtyRaw),    // contracts / base amount
+      side: tradeSide,         // 'buy' or 'sell'
       orderType: "market",
+      // force (timeInForce) defaults via SDK; GTC by default
       clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     };
 
-    const pathV1 = "/api/mix/v1/order/placeOrder";
-    const bodyStr = JSON.stringify(order);
-    const tsMs = Date.now().toString();
+    const sdkResp = await client.mix.placeOrder(orderReq);
 
-    const sig = signRequest("POST", pathV1, tsMs, bodyStr);
-
-    const headers = {
-      "ACCESS-KEY": API_KEY,
-      "ACCESS-SIGN": sig,
-      "ACCESS-PASSPHRASE": PASSPHRASE,
-      "ACCESS-TIMESTAMP": tsMs,
-      "Content-Type": "application/json"
-    };
-
-    const resp = await axios.post("https://api.bitget.com" + pathV1, bodyStr, {
-      headers
-    });
-
-    return res.json({ ok: true, sent: true, bitget: resp.data, order });
+    return res.json({ ok: true, sent: true, bitget: sdkResp, order: orderReq });
   } catch (err) {
-    console.error("ERROR /hook:", err.response?.data || err.message);
+    console.error("ERROR /hook:", err.response?.data || err.message || err);
     return res.status(500).json({
       ok: false,
-      error: err.message,
+      error: err.message || "unknown_error",
       bitget: err.response?.data || null
     });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`tv-bitget bridge listening on port ${PORT}`);
+  console.log(`tv-bitget SDK bridge listening on port ${PORT}`);
 });
