@@ -86,16 +86,15 @@ app.post("/hook", async (req, res) => {
 
 const order = {
   symbol,                     // BTCUSDT
-  productType: "USDT-FUTURES",// USDT-M futures (per docs)
-  marginMode: "crossed",      // cross margin (exact spelling)
+  productType: "USDT-FUTURES",
+  marginMode: "crossed",
   marginCoin: "USDT",
   size: String(qty),
   side,                       // 'buy' or 'sell'
+  tradeSide: "open",          // 🔹 tell Bitget this is an OPEN order
   orderType: "market",
   clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 };
-
-
 
     const body = JSON.stringify(order);
     const tsMs = Date.now().toString();
