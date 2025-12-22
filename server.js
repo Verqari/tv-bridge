@@ -1,3 +1,5 @@
+console.log("DEPLOY VERSION: esm-fix-2025-12-22");
+
 // server.js
 import express from "express";
 import crypto from "crypto";
