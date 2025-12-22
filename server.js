@@ -1,11 +1,8 @@
 console.log("DEPLOY VERSION: esm-fix-2025-12-22");
 
-// server.js
+// server.js (ESM)
 import express from "express";
 import crypto from "crypto";
-
-// If your Node runtime is <18, uncomment this line and use node-fetch:
-// import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json({ type: "*/*" }));
@@ -13,12 +10,11 @@ app.use(express.json({ type: "*/*" }));
 const PORT = process.env.PORT || 3000;
 
 // =====================================================
-// 🔴 RED: CHANGE THESE IN RENDER ENVIRONMENT (NOT HERE)
-// In Render → your service → Environment, create these:
-// BITGET_API_KEY      = <your Bitget API key>
-// BITGET_API_SECRET   = <your Bitget API secret>
-// BITGET_API_PASS     = <your Bitget API passphrase>
-// BRIDGE_SECRET       = <the "secret" you put in TradingView alert JSON>
+// SET THESE IN RENDER → Environment (NOT IN CODE):
+// BITGET_API_KEY
+// BITGET_API_SECRET
+// BITGET_API_PASS
+// BRIDGE_SECRET
 // =====================================================
 const BITGET_API_KEY = process.env.BITGET_API_KEY;
 const BITGET_API_SECRET = process.env.BITGET_API_SECRET;
@@ -34,6 +30,13 @@ console.log("ENV OK =", {
   BITGET_API_PASS: !!BITGET_API_PASS,
   BRIDGE_SECRET: !!BRIDGE_SECRET
 });
+
+// Ensure fetch exists (Node 18+). If this throws, set Node version to 18/20 on Render.
+if (typeof fetch !== "function") {
+  throw new Error(
+    "Global fetch is not available. Set Render Node version to 18+ (recommended) or add node-fetch."
+  );
+}
 
 // Bitget request signer (matches your working endpoint)
 function signRequest(method, path, timestamp, body = "") {
@@ -67,10 +70,8 @@ app.post("/hook", async (req, res) => {
       return res.status(403).json({ ok: false, error: "unauthorized" });
     }
 
-    // 2) Timestamp validation (FIX: avoid stale_or_future_signal blocking)
+    // 2) Timestamp validation (robust)
     const nowSec = Math.floor(Date.now() / 1000);
-
-    // TradingView may send as string; normalize
     const maxLag = Math.max(0, Number(p.max_lag ?? 600) || 600);
 
     let tsNum = Number(p.timestamp);
@@ -105,7 +106,7 @@ app.post("/hook", async (req, res) => {
     const side = (action === "sell" || action === "short") ? "sell" : "buy";
     const tradeSide = "open";
 
-    // 5) Default instrument (you can later map p.tv_instrument dynamically)
+    // 5) Default instrument
     const orderSent = {
       symbol: "BTCUSDT",
       productType: "USDT-FUTURES",
