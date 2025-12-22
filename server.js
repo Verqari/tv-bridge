@@ -1,132 +1,161 @@
-
 // server.js
-const express = require("express");
-const crypto = require("crypto");
-const axios = require("axios");
+import express from "express";
+import crypto from "crypto";
+
+// If your Node runtime is <18, uncomment this line and use node-fetch:
+// import fetch from "node-fetch";
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ type: "*/*" }));
 
 const PORT = process.env.PORT || 3000;
 
-// ==== EDIT THESE 4 ONLY ====================================
-const API_KEY = "bg_6e19b0664e47d62f71d63fdb138a956f";
-const API_SECRET = "83047d6f01051a2bed008765f0d8b682afd41e35abc3cfe67053de0c41e7a462";
-const PASSPHRASE = "FredaTV123"; // the API passphrase from Bitget
-const BRIDGE_SECRET = "eyJhbGciOiJIUzI1NiJ9.eyJzaWduYWxzX3NvdXJjZV9pZCI6MTU1Mjc1fQ.9Tph5w-fPgUVMS7hCPkqe5RBMsmBAUsTxC8BWTuTL9E"; // the 'secret' field from your TV JSON
-// ===========================================================
+// =====================================================
+// 🔴 RED: CHANGE THESE IN RENDER ENVIRONMENT (NOT HERE)
+// In Render → your service → Environment, create these:
+// BITGET_API_KEY      = <your Bitget API key>
+// BITGET_API_SECRET   = <your Bitget API secret>
+// BITGET_API_PASS     = <your Bitget API passphrase>
+// BRIDGE_SECRET       = <the "secret" you put in TradingView alert JSON>
+// =====================================================
+const BITGET_API_KEY = process.env.BITGET_API_KEY;
+const BITGET_API_SECRET = process.env.BITGET_API_SECRET;
+const BITGET_API_PASS = process.env.BITGET_API_PASS;
+const BRIDGE_SECRET = process.env.BRIDGE_SECRET;
 
-// Bitget v2 signature generator
-// prehash = timestamp + method.toUpperCase() + path + (body || "")
-function sign(method, path, ts, body = "") {
-  const pre = ts + method.toUpperCase() + path + body;
-  return crypto.createHmac("sha256", API_SECRET).update(pre).digest("base64");
-}
-
-function mapSymbol(tvInstr) {
-  const s = String(tvInstr || "").toUpperCase();
-  const base = s.includes(":") ? s.split(":").pop() : s;
-  if (base.includes("BTC") && base.includes("USDT")) return "BTCUSDT";
-  if (base.includes("ETH") && base.includes("USDT")) return "ETHUSDT";
-  if (/^[A-Z0-9]{3,6}USDT$/.test(base)) return base;
-  return base;
-}
-
-app.get("/health", (req, res) => {
-  res.send("OK (Bitget v2 bridge running)");
+// Startup check (does NOT print secrets)
+console.log("Bitget TradingView Bridge starting...");
+console.log("PORT =", PORT);
+console.log("ENV OK =", {
+  BITGET_API_KEY: !!BITGET_API_KEY,
+  BITGET_API_SECRET: !!BITGET_API_SECRET,
+  BITGET_API_PASS: !!BITGET_API_PASS,
+  BRIDGE_SECRET: !!BRIDGE_SECRET
 });
 
+// Bitget request signer (matches your working endpoint)
+function signRequest(method, path, timestamp, body = "") {
+  const message = `${timestamp}${method}${path}${body}`;
+  return crypto
+    .createHmac("sha256", BITGET_API_SECRET)
+    .update(message)
+    .digest("hex");
+}
+
+// Basic request logger (helpful on Render)
+app.use((req, _res, next) => {
+  console.log(`[IN] ${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
+});
+
+// Health check
+app.get("/", (_req, res) => res.status(200).send("OK"));
+
+// Webhook endpoint TradingView -> Bridge
 app.post("/hook", async (req, res) => {
   try {
-    const p = req.body || {};
+    const p = req.body ?? {};
+    console.log("[HOOK BODY]", JSON.stringify(p));
 
-    // --- Secret check ---
-    if (!p.secret || p.secret !== BRIDGE_SECRET) {
-      return res.status(403).json({ ok: false, error: "Secret mismatch" });
+    // 1) Secret validation
+    if (!BRIDGE_SECRET) {
+      return res.status(500).json({ ok: false, error: "bridge_secret_not_set" });
+    }
+    if (p.secret !== BRIDGE_SECRET) {
+      return res.status(403).json({ ok: false, error: "unauthorized" });
     }
 
-    // --- Freshness check ---
+    // 2) Timestamp validation (FIX: avoid stale_or_future_signal blocking)
     const nowSec = Math.floor(Date.now() / 1000);
-    const tsRaw = (p.timestamp || "").toString().trim();
-    const tsNum = tsRaw.length > 10 ? Math.floor(Number(tsRaw) / 1000) : Number(tsRaw);
-    const maxLag = Number(p.max_lag || 600);
 
-    if (!isFinite(tsNum) || Math.abs(nowSec - tsNum) > maxLag) {
+    // TradingView may send as string; normalize
+    const maxLag = Math.max(0, Number(p.max_lag ?? 600) || 600);
+
+    let tsNum = Number(p.timestamp);
+
+    // If timestamp is milliseconds, convert to seconds
+    if (Number.isFinite(tsNum) && tsNum > 1e12) tsNum = Math.floor(tsNum / 1000);
+
+    // If missing/invalid, fall back to server time (don’t block trades)
+    if (!Number.isFinite(tsNum) || tsNum <= 0) tsNum = nowSec;
+
+    const lag = Math.abs(nowSec - tsNum);
+    if (lag > maxLag) {
       return res.status(400).json({
         ok: false,
         error: "stale_or_future_signal",
-        details: { nowSec, tsNum, maxLag }
+        details: { nowSec, tsNum, maxLag, lag }
       });
     }
 
-    // --- Map symbol ---
-    const symbol = mapSymbol(p.tv_instrument || p.symbol);
-
-    // --- Side mapping ---
-   const action = String(p.action || "").toLowerCase();
-    let side = null;
-
-    if (action === "buy" || action === "long" || action === "open_long") {
-      side = "buy";
-    } else if (action === "sell" || action === "short" || action === "open_short") {
-      side = "sell";
-    } else {
-      return res.status(400).json({ ok: false, error: `invalid action '${action}'` });
+    // 3) Validate action and amount
+    const action = (p.action || "").toLowerCase();
+    if (!["buy", "sell", "long", "short"].includes(action)) {
+      return res.status(400).json({ ok: false, error: "invalid_action", got: action });
     }
 
-
-    // --- Qty ---
-    const qty = Number((p.order && p.order.amount) || p.qty || 0);
-    if (!isFinite(qty) || qty <= 0) {
-      return res.status(400).json({ ok: false, error: "invalid qty" });
+    const amount = Number(p.order?.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ ok: false, error: "invalid_amount", got: p.order?.amount });
     }
 
-    // --- v2 Bitget Order ---
-    const path = "/api/v2/mix/order/place-order";
+    // 4) Map action to Bitget side/tradeSide
+    const side = (action === "sell" || action === "short") ? "sell" : "buy";
+    const tradeSide = "open";
 
-const order = {
-  symbol,                     // BTCUSDT
-  productType: "USDT-FUTURES",
-  marginMode: "crossed",
-  marginCoin: "USDT",
-  size: String(qty),
-  side,                       // 'buy' or 'sell'
-  tradeSide: "open",          // 🔹 tell Bitget this is an OPEN order
-  orderType: "market",
-  clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-};
-
-    const body = JSON.stringify(order);
-    const tsMs = Date.now().toString();
-    const signature = sign("POST", path, tsMs, body);
-
-    const headers = {
-      "ACCESS-KEY": API_KEY,
-      "ACCESS-SIGN": signature,
-      "ACCESS-PASSPHRASE": PASSPHRASE,
-      "ACCESS-TIMESTAMP": tsMs,
-      "Content-Type": "application/json"
+    // 5) Default instrument (you can later map p.tv_instrument dynamically)
+    const orderSent = {
+      symbol: "BTCUSDT",
+      productType: "USDT-FUTURES",
+      marginMode: "crossed",
+      marginCoin: "USDT",
+      size: amount.toString(),
+      side,
+      tradeSide,
+      orderType: "market",
+      clientOid: `tv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     };
 
-    const result = await axios.post("https://api.bitget.com" + path, body, { headers });
+    // 6) Send to Bitget
+    if (!BITGET_API_KEY || !BITGET_API_SECRET || !BITGET_API_PASS) {
+      return res.status(500).json({ ok: false, error: "bitget_env_not_set" });
+    }
 
-    return res.json({
-      ok: true,
-      bitget: result.data,
-      orderSent: order
+    const urlPath = "/api/v2/mix/order/place-order";
+    const body = JSON.stringify(orderSent);
+    const timestamp = Date.now().toString();
+    const signature = signRequest("POST", urlPath, timestamp, body);
+
+    const response = await fetch("https://api.bitget.com" + urlPath, {
+      method: "POST",
+      headers: {
+        "ACCESS-KEY": BITGET_API_KEY,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": BITGET_API_PASS,
+        "Content-Type": "application/json"
+      },
+      body
+    });
+
+    const text = await response.text();
+    console.log("[BITGET STATUS]", response.status);
+    console.log("[BITGET BODY]", text);
+
+    let bitget;
+    try { bitget = JSON.parse(text); } catch { bitget = { raw: text }; }
+
+    return res.status(response.status).json({
+      ok: response.ok,
+      bitget,
+      orderSent,
+      timing: { nowSec, tsNum, maxLag, lag }
     });
 
   } catch (err) {
-    console.error("HOOK ERROR:", err.response?.data || err.message);
-    return res.status(500).json({
-      ok: false,
-      error: err.message,
-      bitget: err.response?.data || null
-    });
+    console.error("[ERROR]", err);
+    return res.status(500).json({ ok: false, error: err?.message || "server_error" });
   }
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log("Bitget v2 TradingView Bridge running on port", PORT);
-});
+app.listen(PORT, () => console.log("Bridge online on port " + PORT));
